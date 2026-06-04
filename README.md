@@ -44,7 +44,7 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 | macOS | `terminal-notifier` (preferred) or `osascript` | terminal-notifier `-execute` |
 | Windows | PowerShell toast notifications | Via toast activation |
 
-**WSL2:** Linux `notify-send` may not reach Windows notifications without a bridge. Install `wsl-notify-send` or configure PowerShell toast fallback.
+**WSL2:** Linux `notify-send` may not reach Windows notifications without a bridge. Install [wsl-notify-send](https://github.com/stuartleeks/wsl-notify-send) or configure PowerShell toast fallback.
 
 ## Requirements
 
