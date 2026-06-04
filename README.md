@@ -48,7 +48,7 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - Claude Code with plugin support
 - Platform notification daemon (libnotify on Linux, terminal-notifier on macOS)
 
