@@ -101,8 +101,9 @@ def read_state(path):
 
     # Stale check: if the PID that wrote this state is no longer alive,
     # treat as a fresh session (handles crash-before-SessionEnd).
+    # os.kill(pid, 0) is a Unix-only concept — skip on Windows.
     pid = data.get('pid')
-    if pid is not None:
+    if pid is not None and sys.platform != 'win32':
         try:
             os.kill(pid, 0)
         except OSError:

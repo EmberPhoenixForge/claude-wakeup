@@ -90,20 +90,18 @@ def test_write_and_read_state():
         path.unlink(missing_ok=True)
 
 
+@pytest.mark.skipif(sys.platform == 'win32',
+                    reason='os.kill(pid, 0) staleness check is Unix-only')
 def test_read_state_stale_pid():
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
         path = Path(f.name)
     try:
-        # Write state with a PID that can't exist
         notify.write_state(path, {'permission_fired': True})
-        # Overwrite PID with one that doesn't exist
         with open(path) as fh:
             data = json.load(fh)
         data['pid'] = 999999  # unlikely to be a real PID
         with open(path, 'w') as fh:
             json.dump(data, fh)
-        # Should return None because PID 999999 doesn't exist
-        # (signal 0 will raise OSError)
         state = notify.read_state(path)
         assert state is None
     finally:
