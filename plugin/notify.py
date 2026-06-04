@@ -184,9 +184,9 @@ def _foreground_windows():
         '(IntPtr hWnd, out uint lpdwProcessId);'
         "';"
         '$hwnd = [Win32.Foreground]::GetForegroundWindow();'
-        '$pid = 0;'
-        '[Win32.Foreground]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null;'
-        '(Get-Process -Id $pid).ProcessName'
+        '$procId = 0;'
+        '[Win32.Foreground]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null;'
+        '(Get-Process -Id $procId).ProcessName'
     )
     proc = subprocess.run(
         ['powershell.exe' if _is_wsl() else 'powershell', '-Command', ps],
