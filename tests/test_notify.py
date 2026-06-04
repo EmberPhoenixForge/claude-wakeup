@@ -364,3 +364,59 @@ def test_terminal_notifier_includes_action():
         args = mock_run.call_args[0][0]
         assert '-execute' in args
         assert 'code --focus' in args
+
+
+# ---------------------------------------------------------------------------
+# Debug logging (R4, R5, R6)
+# ---------------------------------------------------------------------------
+
+def test_log_creates_directory():
+    """Log directory is created automatically on first write."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_dir = Path(tmpdir) / 'claude-wakeup'
+        with mock.patch.dict(os.environ, {'CLAUDE_WAKEUP_LOG_DIR': str(log_dir)}):
+            with mock.patch.object(os, 'getcwd', return_value='/home/user/test-project'):
+                notify._log('permission', 'dispatched', 'tool=Bash')
+        assert log_dir.exists()
+
+
+def test_log_writes_json_line():
+    """Log entries are valid JSON with required fields."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with mock.patch.dict(os.environ, {'CLAUDE_WAKEUP_LOG_DIR': tmpdir}):
+            with mock.patch.object(os, 'getcwd', return_value='/home/user/test-project'):
+                notify._log('permission', 'dispatched', 'tool=Bash')
+        log_file = Path(tmpdir) / 'debug.log'
+        assert log_file.exists()
+        with open(log_file) as f:
+            entry = json.loads(f.readline())
+        assert entry['event'] == 'permission'
+        assert entry['action'] == 'dispatched'
+        assert entry['project'] == 'test-project'
+        assert entry['detail'] == 'tool=Bash'
+        assert 'ts' in entry
+
+
+def test_log_suppression():
+    """Dedup suppression is logged."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with mock.patch.dict(os.environ, {'CLAUDE_WAKEUP_LOG_DIR': tmpdir}):
+            with mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+                notify._log('permission', 'suppressed', 'dedup: already fired')
+        with open(Path(tmpdir) / 'debug.log') as f:
+            entry = json.loads(f.readline())
+        assert entry['action'] == 'suppressed'
+
+
+def test_log_env_var_override():
+    """CLAUDE_WAKEUP_LOG_DIR env var overrides default path."""
+    with tempfile.TemporaryDirectory() as custom_dir:
+        with mock.patch.dict(os.environ, {'CLAUDE_WAKEUP_LOG_DIR': custom_dir}):
+            result = notify._log_dir()
+            assert str(result) == custom_dir
+
+
+def test_log_never_raises():
+    """Logging failure must never break notification flow."""
+    with mock.patch('builtins.open', side_effect=PermissionError):
+        notify._log('permission', 'dispatched')

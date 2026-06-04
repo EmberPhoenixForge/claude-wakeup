@@ -13,7 +13,38 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Debug logging
+# ---------------------------------------------------------------------------
+
+def _log_dir():
+    """Return the debug log directory, creating it if needed."""
+    path = Path(os.environ.get('CLAUDE_WAKEUP_LOG_DIR',
+                               Path.home() / '.claude' / 'claude-wakeup'))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _log(event, action, detail=''):
+    """Append a JSON-lines debug entry to the session log."""
+    try:
+        entry = {
+            'ts': datetime.now(timezone.utc).isoformat(),
+            'event': event,
+            'action': action,
+            'project': os.path.basename(os.getcwd()),
+        }
+        if detail:
+            entry['detail'] = detail
+        log_path = _log_dir() / 'debug.log'
+        with open(log_path, 'a') as fh:
+            fh.write(json.dumps(entry, default=str) + '\n')
+    except Exception:
+        pass  # logging failure must never break notifications
 
 
 # ---------------------------------------------------------------------------
@@ -239,25 +270,31 @@ def main():
 
     # Internal signals — never produce user-visible notifications
     if event == 'cycle-reset':
+        _log(event, 'state_cleared')
         clear_state(state_path)
         sys.exit(0)
 
     if event == 'cleanup':
+        _log(event, 'state_removed')
         clear_state(state_path)
         sys.exit(0)
 
     # User-visible events
     if event in ('permission', 'stop', 'error'):
+        context = read_event_context()
+        _log(event, 'received', context.get('tool_name', context.get('error', '')))
+
         state = read_state(state_path)
 
         # Dedup: permission fires at most once per response cycle (R7, AE1)
         if event == 'permission' and state and state.get('permission_fired'):
+            _log(event, 'suppressed', 'dedup: already fired this cycle')
             sys.exit(0)
 
-        context = read_event_context()
         payload = build_payload(event, context)
         if payload:
             dispatch(payload)
+            _log(event, 'dispatched', payload.get('message', ''))
 
         # Update dedup state
         if state is None:

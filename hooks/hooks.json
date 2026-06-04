@@ -1,4 +1,20 @@
 {
+  "Notification": {
+    "permission_prompt": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh permission",
+        "timeout": 10
+      }
+    ],
+    "idle_prompt": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop",
+        "timeout": 10
+      }
+    ]
+  },
   "PermissionRequest": {
     "": [
       {
