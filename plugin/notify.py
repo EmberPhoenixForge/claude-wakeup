@@ -148,14 +148,107 @@ def read_event_context():
 # Platform notification backends
 # ---------------------------------------------------------------------------
 
+def _is_wsl():
+    """Return True if running under WSL (Windows Subsystem for Linux)."""
+    return os.environ.get('WSL_DISTRO_NAME') is not None
+
+
 def _notify_linux(payload):
-    """Send notification via notify-send (libnotify)."""
+    """Send notification via notify-send (libnotify). On WSL2, uses PowerShell."""
+    if _is_wsl():
+        _notify_wsl(payload)
+        return
+
     cmd = ['notify-send', '--app-name', 'Claude Code']
     urgency = payload.get('urgency')
     if urgency and urgency in ('low', 'normal', 'critical'):
         cmd += ['--urgency', urgency]
     cmd += [payload['title'], payload['message']]
     subprocess.run(cmd, check=False, timeout=5,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _ps_escape_xml(s):
+    """Escape a string for safe embedding in a PowerShell CreateTextNode call.
+
+    The text is passed to CreateTextNode which handles XML entities
+    (<, >, &, etc.) automatically. We only need to escape characters
+    that would break the PowerShell double-quoted string literal:
+    backticks (the PowerShell escape character) and double-quotes.
+    """
+    return s.replace('`', '``').replace('"', '`"')
+
+
+def _notify_wsl(payload):
+    """Send notification via PowerShell toast on WSL2 with vscode:// click-to-focus.
+
+    Builds a custom XML toast via Windows.Data.Xml.Dom.XmlDocument with a
+    ToastGeneric binding and a protocol-activation action so clicking the
+    toast brings VS Code to the foreground. Text content is inserted via
+    CreateTextNode (safe XML escaping). PowerShell's AppUserModelID is
+    discovered at toast time; if discovery fails the toast still fires but
+    the click action may be inactive on some systems.
+    """
+    title = payload['title']
+    message = payload['message']
+    distro = os.environ.get('WSL_DISTRO_NAME', '')
+
+    # Single PowerShell script: discover AUMID, build XML, show toast.
+    # Uses DOM CreateTextNode for safe text insertion (no XML injection risk).
+    # -NoProfile for speed; the script has no profile dependencies.
+    ps = (
+        '[Windows.UI.Notifications.ToastNotificationManager,'
+        'Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;'
+        '[Windows.Data.Xml.Dom.XmlDocument,'
+        'Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;'
+
+        # Discover PowerShell's AppUserModelID so protocol activation works.
+        # Get-StartApps returns registered Start-menu apps; PowerShell's entry
+        # usually matches '*powershell.exe'. Fall back to Windows Terminal's
+        # AUMID (commonly installed) if discovery fails. If both are unavailable
+        # the toast still fires — just without a working click action.
+        '$aumid=(Get-StartApps|?{$_.Name-like\'*PowerShell*\''
+        '-and$_.AppID-like\'*powershell.exe\'}|%%{$_.AppID})[0];'
+        'if(!$aumid){$aumid=\'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App\'};'
+
+        # Build the toast XML. Text nodes are empty placeholders — actual
+        # content is inserted below via CreateTextNode (safe XML escaping).
+        '$x=[Windows.Data.Xml.Dom.XmlDocument]::new();'
+        '$x.LoadXml(\'<toast><visual><binding template=\"ToastGeneric\">'
+        '<text></text><text></text></binding></visual></toast>\');'
+
+        # Insert title and message text safely via the DOM
+        '$x.GetElementsByTagName(\"text\").Item(0).AppendChild('
+        '$x.CreateTextNode(\"%s\"))|Out-Null;'
+        '$x.GetElementsByTagName(\"text\").Item(1).AppendChild('
+        '$x.CreateTextNode(\"%s\"))|Out-Null;'
+    ) % (_ps_escape_xml(title), _ps_escape_xml(message))
+
+    # Add the protocol-activation action (vscode://) if we have a distro name.
+    # The action uses <actions><action activationType="protocol"> which is the
+    # supported mechanism for protocol activation from shell-sent toasts
+    # (confirmed working by user testing).
+    if distro:
+        ps += (
+            '$xn=$x.CreateElement(\"actions\");'
+            '$xa=$x.CreateElement(\"action\");'
+            '$xa.SetAttribute(\"content\",\"Open VS Code\");'
+            '$xa.SetAttribute(\"arguments\",'
+            '\"vscode://vscode-remote/wsl+{distro}\");'
+            '$xa.SetAttribute(\"activationType\",\"protocol\");'
+            '$xn.AppendChild($xa)|Out-Null;'
+            '$x.DocumentElement.AppendChild($xn)|Out-Null;'
+        ).format(distro=distro)
+
+    ps += (
+        # Show the toast via the discovered (or fallback) AUMID
+        '$n=[Windows.UI.Notifications.ToastNotificationManager]'
+        '::CreateToastNotifier($aumid);'
+        '$n.Show([Windows.UI.Notifications.ToastNotification]::new($x))'
+    )
+
+    subprocess.run(['powershell.exe', '-NoProfile', '-Command', ps],
+                   check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

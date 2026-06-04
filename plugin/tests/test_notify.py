@@ -183,7 +183,8 @@ def test_build_payload_error():
 
 def test_notify_linux_command():
     payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
-    with mock.patch('subprocess.run') as mock_run:
+    with mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch('subprocess.run') as mock_run:
         notify._notify_linux(payload)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
@@ -223,6 +224,135 @@ def test_notify_windows_powershell():
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert args[0] == 'powershell'
+
+
+# ---------------------------------------------------------------------------
+# WSL2 toast backend (click-to-focus via vscode:// protocol activation)
+# ---------------------------------------------------------------------------
+
+def test_notify_wsl_routes_from_linux_when_wsl():
+    """When _is_wsl() returns True, _notify_linux delegates to _notify_wsl."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.object(notify, '_notify_wsl') as mock_wsl, \
+         mock.patch.object(notify, '_is_wsl', return_value=True), \
+         mock.patch('subprocess.run'):
+        notify._notify_linux(payload)
+        mock_wsl.assert_called_once_with(payload)
+
+
+def test_notify_wsl_powershell_exe_used():
+    """WSL2 toast uses powershell.exe (Windows interop) not powershell."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        args = mock_run.call_args[0][0]
+        assert args[0] == 'powershell.exe'
+        assert '-NoProfile' in args
+        assert mock_run.call_args[1]['check'] is False
+        assert mock_run.call_args[1]['timeout'] == 10
+
+
+def test_notify_wsl_includes_vscode_protocol_uri():
+    """Toast XML action arguments include vscode:// protocol URI with distro."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script argument
+        assert 'vscode://vscode-remote/wsl+Ubuntu' in ps_command
+        assert 'activationType' in ps_command
+        assert '"protocol"' in ps_command
+
+
+def test_notify_wsl_activation_type_protocol():
+    """Toast action uses activationType='protocol'."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'SetAttribute("activationType","protocol")' in ps_command
+
+
+def test_notify_wsl_toast_generic_binding():
+    """Toast XML uses ToastGeneric binding template."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'ToastGeneric' in ps_command
+
+
+def test_notify_wsl_title_in_create_text_node():
+    """Notification title is inserted via CreateTextNode (safe XML escaping)."""
+    payload = {'title': 'Test Title', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'CreateTextNode("Test Title")' in ps_command
+
+
+def test_notify_wsl_message_in_create_text_node():
+    """Notification message is inserted via CreateTextNode (safe XML escaping)."""
+    payload = {'title': 'Test', 'message': 'Hello World'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'CreateTextNode("Hello World")' in ps_command
+
+
+def test_notify_wsl_xml_escaping_backtick():
+    """Backticks in title/message are PowerShell-escaped for safe embedding."""
+    payload = {'title': 'Test `backtick`', 'message': 'a`b'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'CreateTextNode("Test ``backtick``")' in ps_command
+
+
+def test_notify_wsl_xml_escaping_double_quote():
+    """Double-quotes in title/message are PowerShell-escaped."""
+    payload = {'title': 'He said "hello"', 'message': 'test'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'CreateTextNode("He said `"hello`"")' in ps_command
+
+
+def test_notify_wsl_no_action_when_no_distro_name():
+    """When WSL_DISTRO_NAME is unset, toast fires without click action block."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': ''}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'SetAttribute("activationType"' not in ps_command
+
+
+def test_notify_wsl_aumid_discovery_present():
+    """PowerShell script includes Get-StartApps AUMID discovery."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        ps_command = mock_run.call_args[0][0][3]  # PS script
+        assert 'Get-StartApps' in ps_command
+        assert '$aumid' in ps_command
+
+
+def test_notify_wsl_gracious_failure_timeout():
+    """Subprocess uses timeout so a hung PowerShell does not block Claude."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Ubuntu'}), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_wsl(payload)
+        assert mock_run.call_args[1]['timeout'] == 10
 
 
 # ---------------------------------------------------------------------------
