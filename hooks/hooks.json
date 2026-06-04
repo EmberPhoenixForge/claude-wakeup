@@ -1,0 +1,63 @@
+{
+  "Notification": {
+    "permission_prompt": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh permission",
+        "timeout": 10
+      }
+    ],
+    "idle_prompt": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop",
+        "timeout": 10
+      }
+    ]
+  },
+  "PermissionRequest": {
+    "": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh permission",
+        "timeout": 10
+      }
+    ]
+  },
+  "Stop": {
+    "": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop",
+        "timeout": 10
+      }
+    ]
+  },
+  "PostToolUseFailure": {
+    "": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh error",
+        "timeout": 10
+      }
+    ]
+  },
+  "UserPromptSubmit": {
+    "": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh cycle-reset",
+        "timeout": 5
+      }
+    ]
+  },
+  "SessionEnd": {
+    "": [
+      {
+        "type": "command",
+        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh cleanup",
+        "timeout": 5
+      }
+    ]
+  }
+}

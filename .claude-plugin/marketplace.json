@@ -1,0 +1,12 @@
+{
+  "name": "ember-phoenix-forge",
+  "description": "Ember Phoenix Forge — Claude Code plugins and tools",
+  "plugins": [
+    {
+      "name": "claude-wakeup",
+      "description": "OS-native desktop notifications when Claude Code needs your attention — permission prompts, task completion, and errors. Click a notification to bring VS Code to the foreground.",
+      "version": "0.1.0",
+      "source": "https://github.com/atbore-phx/claude-wakeup"
+    }
+  ]
+}
