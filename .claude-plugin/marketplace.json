@@ -9,7 +9,7 @@
     {
       "name": "claude-wakeup",
       "description": "OS-native desktop notifications when Claude Code needs your attention — permission prompts, task completion, and errors. Click a notification to bring VS Code to the foreground.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "source": "./plugin",
       "author": {
         "name": "Attilio B. (atbore-phx)",

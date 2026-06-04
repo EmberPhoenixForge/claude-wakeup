@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import xml.sax.saxutils
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -169,28 +170,56 @@ def _notify_linux(payload):
 
 
 def _notify_wsl(payload):
-    """Send notification via PowerShell toast on WSL2.
+    """Send notification via PowerShell toast on WSL2 with click-to-focus.
 
-    Note: click-to-focus is not available on Windows/WSL2. Toast activation
-    handlers require COM registration which isn't possible from a
-    command-line PowerShell script. The notification alerts the user;
-    they manually switch to VS Code.
+    Builds custom toast XML with a clickable action using the vscode://
+    protocol. When WSL_DISTRO_NAME is unset (non-WSL Linux or degraded
+    environment), falls back to a notification without the click action.
     """
-    title = payload['title'].replace("'", "''")
-    message = payload['message'].replace("'", "''")
+    # XML-escape text content, including single quotes that would otherwise
+    # terminate the PowerShell single-quoted string wrapping LoadXml.
+    def _xml_escape(s):
+        return xml.sax.saxutils.escape(s, {'"': '&quot;', "'": '&apos;'})
+
+    title = _xml_escape(payload['title'])
+    message = _xml_escape(payload['message'])
+
+    distro = os.environ.get('WSL_DISTRO_NAME')
+
+    if distro:
+        vscode_uri = f'vscode://vscode-remote/wsl+{distro}{os.getcwd()}'
+        toast_xml = (
+            '<toast><visual><binding template="ToastGeneric">'
+            f'<text>{title}</text>'
+            f'<text>{message}</text>'
+            '</binding></visual>'
+            '<actions>'
+            f'<action content="Open VS Code" arguments="{vscode_uri}" activationType="protocol"/>'
+            '</actions></toast>'
+        )
+    else:
+        toast_xml = (
+            '<toast><visual><binding template="ToastGeneric">'
+            f'<text>{title}</text>'
+            f'<text>{message}</text>'
+            '</binding></visual></toast>'
+        )
+
+    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+
     ps = (
-        "[Windows.UI.Notifications.ToastNotificationManager,"
-        "Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
-        "$t=[Windows.UI.Notifications.ToastNotificationManager]"
-        "::GetTemplateContent(2);"
-        "$t.GetElementsByTagName('text').Item(0).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "$t.GetElementsByTagName('text').Item(1).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "[Windows.UI.Notifications.ToastNotificationManager]"
-        "::CreateToastNotifier('Claude Code').Show("
-        "[Windows.UI.Notifications.ToastNotification]::new($t))"
-    ) % (title, message)
+        '[Windows.UI.Notifications.ToastNotificationManager,'
+        'Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;'
+        '[Windows.Data.Xml.Dom.XmlDocument,'
+        'Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;'
+        '$x=[Windows.Data.Xml.Dom.XmlDocument]::new();'
+        f"$x.LoadXml('{toast_xml}');"
+        '[Windows.UI.Notifications.ToastNotificationManager]'
+        f"::CreateToastNotifier('{aumid}').Show("
+        '[Windows.UI.Notifications.ToastNotification]::new($x))'
+    )
+
     subprocess.run(['powershell.exe', '-Command', ps], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
