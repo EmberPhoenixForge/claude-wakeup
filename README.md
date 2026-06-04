@@ -10,6 +10,8 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 - **Task completion** — know the moment Claude finishes
 - **Errors** — alerted when Claude can't proceed without you
 
+By default, notifications are suppressed when VS Code is the active foreground window — no need to ping you when you're already looking at Claude. Set `CLAUDE_WAKEUP_FOREGROUND=1` to fire notifications regardless.
+
 ## Install
 
 **Via plugin marketplace (recommended):**
@@ -38,18 +40,21 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 
 ## Platform support
 
-| Platform | Notification backend | Click-to-focus |
-|----------|---------------------|----------------|
-| Linux | `notify-send` (libnotify) | `wmctrl` or `xdotool` |
-| macOS | `terminal-notifier` (preferred) or `osascript` | terminal-notifier `-execute` |
-| Windows | PowerShell toast notifications | Via toast activation |
+| Platform | Notification backend | Click-to-focus | Foreground detection | Status |
+|----------|---------------------|----------------|---------------------|--------|
+| WSL2 | PowerShell toast | `vscode://` protocol via XmlDocument toast action | PowerShell `GetForegroundWindow` P/Invoke | Ready |
+| Windows | PowerShell toast | `vscode://` protocol via XmlDocument toast action | PowerShell `GetForegroundWindow` P/Invoke | Beta |
+| macOS | `terminal-notifier` (preferred) or `osascript` | `code <project-path>` via terminal-notifier `-execute` | `osascript` System Events | Beta |
+| Linux | `notify-send` (libnotify) | Not yet supported | `xdotool` (X11 only, Wayland falls back to always-fire) | Alpha |
 
-**WSL2:** Linux `notify-send` may not reach Windows notifications without a bridge. Install [wsl-notify-send](https://github.com/stuartleeks/wsl-notify-send) or configure PowerShell toast fallback.
+**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required.
+
+**VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2. Terminal Claude Code (non-VS Code extension) is not yet supported.
 
 ## Requirements
 
 - Python 3.10+
-- Claude Code with plugin support
+- Claude Code with plugin support (VS Code extension)
 - Platform notification daemon (libnotify on Linux, terminal-notifier on macOS)
 
 ## Development

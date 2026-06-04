@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import xml.sax.saxutils
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -148,14 +149,144 @@ def read_event_context():
 # Platform notification backends
 # ---------------------------------------------------------------------------
 
+def _is_wsl():
+    """Return True if running under WSL (Windows Subsystem for Linux)."""
+    return os.environ.get('WSL_DISTRO_NAME') is not None
+
+
+def _is_vscode_foreground():
+    """Return True if VS Code is the foreground (active) window.
+
+    Uses platform-specific detection commands. Any failure (command missing,
+    timeout, unexpected output) returns False — fail open, notification
+    fires anyway.
+    """
+    try:
+        if sys.platform in ('win32', 'cygwin'):
+            return _foreground_windows()
+        if sys.platform == 'darwin':
+            return _foreground_macos()
+        if sys.platform.startswith('linux'):
+            if _is_wsl():
+                return _foreground_windows()
+            return _foreground_linux()
+    except Exception:
+        pass
+    return False
+
+
+def _foreground_windows():
+    """Check foreground window via PowerShell (Windows and WSL2)."""
+    ps = (
+        'Add-Type -Name Foreground -Namespace Win32 -MemberDefinition '
+        "'[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();"
+        '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId'
+        '(IntPtr hWnd, out uint lpdwProcessId);'
+        "';"
+        '$hwnd = [Win32.Foreground]::GetForegroundWindow();'
+        '$procId = 0;'
+        '[Win32.Foreground]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null;'
+        '(Get-Process -Id $procId).ProcessName'
+    )
+    proc = subprocess.run(
+        ['powershell.exe' if _is_wsl() else 'powershell', '-Command', ps],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and 'Code' in proc.stdout)
+
+
+def _foreground_macos():
+    """Check frontmost application via osascript."""
+    script = ('tell application "System Events" to get name of first '
+              'application process whose frontmost is true')
+    proc = subprocess.run(
+        ['osascript', '-e', script],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and (
+        'Visual Studio Code' in proc.stdout or 'Code' in proc.stdout))
+
+
+def _foreground_linux():
+    """Check active window title via xdotool (X11 only)."""
+    if not shutil.which('xdotool'):
+        return False
+    proc = subprocess.run(
+        ['xdotool', 'getactivewindow', 'getwindowname'],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and (
+        'Visual Studio Code' in proc.stdout or 'Code' in proc.stdout))
+
+
+
 def _notify_linux(payload):
-    """Send notification via notify-send (libnotify)."""
+    """Send notification via notify-send (libnotify). On WSL2, uses PowerShell."""
+    if _is_wsl():
+        _notify_wsl(payload)
+        return
+
     cmd = ['notify-send', '--app-name', 'Claude Code']
     urgency = payload.get('urgency')
     if urgency and urgency in ('low', 'normal', 'critical'):
         cmd += ['--urgency', urgency]
     cmd += [payload['title'], payload['message']]
     subprocess.run(cmd, check=False, timeout=5,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _notify_wsl(payload):
+    """Send notification via PowerShell toast on WSL2 with click-to-focus.
+
+    Builds custom toast XML with a clickable action using the vscode://
+    protocol. When WSL_DISTRO_NAME is unset (non-WSL Linux or degraded
+    environment), falls back to a notification without the click action.
+    """
+    # XML-escape text content, including single quotes that would otherwise
+    # terminate the PowerShell single-quoted string wrapping LoadXml.
+    def _xml_escape(s):
+        return xml.sax.saxutils.escape(s, {'"': '&quot;', "'": '&apos;'})
+
+    title = _xml_escape(payload['title'])
+    message = _xml_escape(payload['message'])
+
+    distro = os.environ.get('WSL_DISTRO_NAME')
+
+    if distro:
+        vscode_uri = f'vscode://vscode-remote/wsl+{distro}{os.getcwd()}'
+        toast_xml = (
+            '<toast><visual><binding template="ToastGeneric">'
+            f'<text>{title}</text>'
+            f'<text>{message}</text>'
+            '</binding></visual>'
+            '<actions>'
+            f'<action content="Open VS Code" arguments="{vscode_uri}" activationType="protocol"/>'
+            '</actions></toast>'
+        )
+    else:
+        toast_xml = (
+            '<toast><visual><binding template="ToastGeneric">'
+            f'<text>{title}</text>'
+            f'<text>{message}</text>'
+            '</binding></visual></toast>'
+        )
+
+    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+
+    ps = (
+        '[Windows.UI.Notifications.ToastNotificationManager,'
+        'Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;'
+        '[Windows.Data.Xml.Dom.XmlDocument,'
+        'Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;'
+        '$x=[Windows.Data.Xml.Dom.XmlDocument]::new();'
+        f"$x.LoadXml('{toast_xml}');"
+        '[Windows.UI.Notifications.ToastNotificationManager]'
+        f"::CreateToastNotifier('{aumid}').Show("
+        '[Windows.UI.Notifications.ToastNotification]::new($x))'
+    )
+
+    subprocess.run(['powershell.exe', '-Command', ps], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -187,22 +318,45 @@ def _notify_macos(payload):
 
 
 def _notify_windows(payload):
-    """Send notification via PowerShell toast (Windows 10+)."""
-    title = payload['title'].replace("'", "''")
-    message = payload['message'].replace("'", "''")
+    """Send notification via PowerShell toast on Windows with click-to-focus.
+
+    Builds custom toast XML with a clickable action using the vscode://
+    protocol. Mirrors the WSL2 XmlDocument approach with a vscode://file/
+    URI for native Windows paths.
+    """
+    def _xml_escape(s):
+        return xml.sax.saxutils.escape(s, {'"': '&quot;', "'": '&apos;'})
+
+    title = _xml_escape(payload['title'])
+    message = _xml_escape(payload['message'])
+
+    # Normalize Windows backslashes to forward slashes for a valid URI
+    vscode_uri = 'vscode://file/' + os.getcwd().replace('\\', '/')
+    toast_xml = (
+        '<toast><visual><binding template="ToastGeneric">'
+        f'<text>{title}</text>'
+        f'<text>{message}</text>'
+        '</binding></visual>'
+        '<actions>'
+        f'<action content="Open VS Code" arguments="{vscode_uri}" activationType="protocol"/>'
+        '</actions></toast>'
+    )
+
+    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+
     ps_script = (
-        "[Windows.UI.Notifications.ToastNotificationManager,"
-        "Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
-        "$t=[Windows.UI.Notifications.ToastNotificationManager]"
-        "::GetTemplateContent(2);"
-        "$t.GetElementsByTagName('text').Item(0).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "$t.GetElementsByTagName('text').Item(1).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "[Windows.UI.Notifications.ToastNotificationManager]"
-        "::CreateToastNotifier('Claude Code').Show("
-        "[Windows.UI.Notifications.ToastNotification]::new($t))"
-    ) % (title, message)
+        '[Windows.UI.Notifications.ToastNotificationManager,'
+        'Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;'
+        '[Windows.Data.Xml.Dom.XmlDocument,'
+        'Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;'
+        '$x=[Windows.Data.Xml.Dom.XmlDocument]::new();'
+        f"$x.LoadXml('{toast_xml}');"
+        '[Windows.UI.Notifications.ToastNotificationManager]'
+        f"::CreateToastNotifier('{aumid}').Show("
+        '[Windows.UI.Notifications.ToastNotification]::new($x))'
+    )
+
     subprocess.run(['powershell', '-Command', ps_script], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -234,6 +388,8 @@ def dispatch(payload):
 def build_payload(event, context):
     """Build a structured notification payload from event type and context."""
     project = os.path.basename(os.getcwd())
+    project_path = os.getcwd()
+    action = f'code {project_path}'
 
     if event == 'permission':
         tool = context.get('tool_name', 'a tool')
@@ -241,12 +397,14 @@ def build_payload(event, context):
             'title': f'Claude needs permission — {project}',
             'message': f'Claude wants to run {tool}. Switch to VS Code to approve or deny.',
             'urgency': 'normal',
+            'action': action,
         }
     if event == 'stop':
         return {
             'title': f'Claude finished — {project}',
             'message': 'Task complete. Switch to VS Code for next steps.',
             'urgency': 'low',
+            'action': action,
         }
     if event == 'error':
         error_msg = context.get('error', 'an error occurred')
@@ -254,6 +412,7 @@ def build_payload(event, context):
             'title': f'Claude hit an error — {project}',
             'message': f'{error_msg}. Switch to VS Code to help resolve it.',
             'urgency': 'critical',
+            'action': action,
         }
     return None
 
@@ -294,8 +453,14 @@ def main():
 
         payload = build_payload(event, context)
         if payload:
-            dispatch(payload)
-            _log(event, 'dispatched', payload.get('message', ''))
+            # Suppress notification when VS Code is already in the foreground
+            # (CLAUDE_WAKEUP_FOREGROUND=1 overrides to fire regardless)
+            if (os.environ.get('CLAUDE_WAKEUP_FOREGROUND') != '1'
+                    and _is_vscode_foreground()):
+                _log(event, 'suppressed', 'foreground')
+            else:
+                dispatch(payload)
+                _log(event, 'dispatched', payload.get('message', ''))
 
         # Update dedup state
         if state is None:

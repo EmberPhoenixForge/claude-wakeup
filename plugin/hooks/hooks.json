@@ -1,62 +1,80 @@
 {
-  "Notification": {
-    "permission_prompt": [
+  "hooks": {
+    "Notification": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh permission",
-        "timeout": 10
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" permission",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" stop",
+            "timeout": 10
+          }
+        ]
       }
     ],
-    "idle_prompt": [
+    "PermissionRequest": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop",
-        "timeout": 10
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" permission",
+            "timeout": 10
+          }
+        ]
       }
-    ]
-  },
-  "PermissionRequest": {
-    "": [
+    ],
+    "Stop": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh permission",
-        "timeout": 10
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" stop",
+            "timeout": 10
+          }
+        ]
       }
-    ]
-  },
-  "Stop": {
-    "": [
+    ],
+    "PostToolUseFailure": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop",
-        "timeout": 10
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" error",
+            "timeout": 10
+          }
+        ]
       }
-    ]
-  },
-  "PostToolUseFailure": {
-    "": [
+    ],
+    "UserPromptSubmit": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh error",
-        "timeout": 10
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" cycle-reset",
+            "timeout": 5
+          }
+        ]
       }
-    ]
-  },
-  "UserPromptSubmit": {
-    "": [
+    ],
+    "SessionEnd": [
       {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh cycle-reset",
-        "timeout": 5
-      }
-    ]
-  },
-  "SessionEnd": {
-    "": [
-      {
-        "type": "command",
-        "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh cleanup",
-        "timeout": 5
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh\" cleanup",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

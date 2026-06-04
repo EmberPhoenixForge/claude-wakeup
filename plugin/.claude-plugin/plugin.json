@@ -1,10 +1,12 @@
 {
   "name": "claude-wakeup",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "description": "OS-native desktop notifications when Claude Code needs your attention — permission prompts, task completion, and errors. Click a notification to bring VS Code to the foreground.",
-  "author": "Attilio B. (atbore-phx)",
+  "author": {
+    "name": "Attilio B. (atbore-phx)",
+    "url": "https://github.com/atbore-phx"
+  },
+  "repository": "https://github.com/EmberPhoenixForge/claude-wakeup",
   "license": "MIT",
-  "homepage": "https://github.com/EmberPhoenixForge/claude-wakeup",
-  "hooks": "./hooks",
-  "commands": "./commands"
+  "homepage": "https://github.com/EmberPhoenixForge/claude-wakeup"
 }

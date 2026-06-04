@@ -159,6 +159,7 @@ def test_build_payload_permission():
         assert payload['title'] == 'Claude needs permission — my-project'
         assert 'Bash' in payload['message']
         assert payload['urgency'] == 'normal'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 def test_build_payload_stop():
@@ -167,6 +168,7 @@ def test_build_payload_stop():
         assert payload['title'] == 'Claude finished — my-project'
         assert 'complete' in payload['message'].lower()
         assert payload['urgency'] == 'low'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 def test_build_payload_error():
@@ -175,6 +177,7 @@ def test_build_payload_error():
         assert payload['title'] == 'Claude hit an error — my-project'
         assert 'test failure' in payload['message']
         assert payload['urgency'] == 'critical'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +186,8 @@ def test_build_payload_error():
 
 def test_notify_linux_command():
     payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
-    with mock.patch('subprocess.run') as mock_run:
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_is_wsl', return_value=False):
         notify._notify_linux(payload)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
@@ -194,6 +198,90 @@ def test_notify_linux_command():
         assert 'Hello' in args
         assert mock_run.call_args[1]['timeout'] == 5
         assert mock_run.call_args[1]['check'] is False
+
+
+def test_notify_linux_wsl():
+    """On WSL2, use PowerShell toast with XmlDocument and click-to-focus action."""
+    payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_is_wsl', return_value=True), \
+         mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'vibe-legox'}), \
+         mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+        notify._notify_linux(payload)
+        args = mock_run.call_args[0][0]
+        assert args[0] == 'powershell.exe'
+        assert '-Command' in args
+        ps_script = args[2]
+        # XmlDocument-based approach
+        assert 'Windows.Data.Xml.Dom.XmlDocument' in ps_script
+        assert '$x=[Windows.Data.Xml.Dom.XmlDocument]::new()' in ps_script
+        assert "$x.LoadXml(" in ps_script
+        # Click-to-focus action
+        assert '<actions>' in ps_script
+        assert 'activationType="protocol"' in ps_script
+        assert 'vscode://vscode-remote/wsl+vibe-legox/home/user/project' in ps_script
+        # Uses registered PowerShell AUMID
+        assert '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}' in ps_script
+        # Title and message embedded in XML
+        assert '<text>Test</text>' in ps_script
+        assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_wsl_escapes_special_characters():
+    """XML-escape title/message text containing &, <, >, ', \" characters."""
+    payload = {'title': "A & B < C > D", 'message': "He said \"hello\" — isn't it?"}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'vibe-legox'}), \
+         mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+        notify._notify_wsl(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        # Escaped characters in the XML
+        assert '&amp;' in ps_script
+        assert '&lt;' in ps_script
+        assert '&gt;' in ps_script
+        assert '&quot;' in ps_script
+        assert '&apos;' in ps_script
+        # Raw unescaped characters should not appear inside LoadXml
+        load_xml_start = ps_script.index("$x.LoadXml('") + len("$x.LoadXml('")
+        load_xml_end = ps_script.index("');", load_xml_start)
+        xml_content = ps_script[load_xml_start:load_xml_end]
+        assert ' & ' not in xml_content
+        assert ' < ' not in xml_content
+        assert ' > ' not in xml_content
+        assert "'" not in xml_content  # single quotes escaped for PowerShell
+
+
+def test_notify_wsl_fallback_without_distro():
+    """When WSL_DISTRO_NAME is unset, send toast without click action."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.dict(os.environ, {}, clear=True), \
+         mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+        notify._notify_wsl(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        # Still uses XmlDocument
+        assert 'Windows.Data.Xml.Dom.XmlDocument' in ps_script
+        # No click action
+        assert '<actions>' not in ps_script
+        assert 'activationType' not in ps_script
+        assert 'vscode://' not in ps_script
+        # Notification still fires with title and message
+        assert '<text>Test</text>' in ps_script
+        assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_wsl_subprocess_contract():
+    """_notify_wsl preserves check=False, timeout=10, DEVNULL redirection."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'vibe-legox'}), \
+         mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+        notify._notify_wsl(payload)
+        kwargs = mock_run.call_args[1]
+        assert kwargs['check'] is False
+        assert kwargs['timeout'] == 10
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
 
 
 def test_notify_macos_terminal_notifier():
@@ -216,13 +304,203 @@ def test_notify_macos_fallback_osascript():
         assert args[0] == 'osascript'
 
 
-def test_notify_windows_powershell():
+def test_notify_macos_without_action():
+    """When payload has no action key, terminal-notifier omits -execute."""
     payload = {'title': 'Test', 'message': 'Hello'}
-    with mock.patch('subprocess.run') as mock_run:
+    with mock.patch.object(notify.shutil, 'which', return_value='/usr/local/bin/terminal-notifier'), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_macos(payload)
+        args = mock_run.call_args[0][0]
+        assert '-execute' not in args
+
+
+def test_notify_macos_subprocess_contract():
+    """_notify_macos preserves check=False, timeout=5, DEVNULL redirection."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.object(notify.shutil, 'which', return_value='/usr/local/bin/terminal-notifier'), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_macos(payload)
+        kwargs = mock_run.call_args[1]
+        assert kwargs['check'] is False
+        assert kwargs['timeout'] == 5
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+
+
+def test_notify_windows_powershell():
+    """Native Windows uses XmlDocument toast with vscode://file/ click-to-focus."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
         notify._notify_windows(payload)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert args[0] == 'powershell'
+        assert '-Command' in args
+        ps_script = args[2]
+        # XmlDocument-based approach
+        assert 'Windows.Data.Xml.Dom.XmlDocument' in ps_script
+        assert '$x=[Windows.Data.Xml.Dom.XmlDocument]::new()' in ps_script
+        assert "$x.LoadXml(" in ps_script
+        # Click-to-focus action with forward-slash-normalized path
+        assert '<actions>' in ps_script
+        assert 'activationType="protocol"' in ps_script
+        assert 'vscode://file/C:/Users/test/project' in ps_script
+        # Uses registered PowerShell AUMID
+        assert '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}' in ps_script
+        # Title and message embedded in XML
+        assert '<text>Test</text>' in ps_script
+        assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_windows_escapes_special_characters():
+    """XML-escape title/message text containing &, <, >, ', \" characters."""
+    payload = {'title': "A & B < C > D", 'message': "He said \"hello\" — isn't it?"}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
+        notify._notify_windows(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        # Escaped characters in the XML
+        assert '&amp;' in ps_script
+        assert '&lt;' in ps_script
+        assert '&gt;' in ps_script
+        assert '&quot;' in ps_script
+        assert '&apos;' in ps_script
+        # Raw unescaped characters should not appear inside LoadXml
+        load_xml_start = ps_script.index("$x.LoadXml('") + len("$x.LoadXml('")
+        load_xml_end = ps_script.index("');", load_xml_start)
+        xml_content = ps_script[load_xml_start:load_xml_end]
+        assert ' & ' not in xml_content
+        assert ' < ' not in xml_content
+        assert ' > ' not in xml_content
+        assert "'" not in xml_content  # single quotes escaped for PowerShell
+
+
+def test_notify_windows_subprocess_contract():
+    """_notify_windows preserves check=False, timeout=10, DEVNULL redirection."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
+        notify._notify_windows(payload)
+        kwargs = mock_run.call_args[1]
+        assert kwargs['check'] is False
+        assert kwargs['timeout'] == 10
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+
+
+# ---------------------------------------------------------------------------
+# Foreground detection
+# ---------------------------------------------------------------------------
+
+def test_is_vscode_foreground_windows_true():
+    """When foreground process is Code, return True."""
+    with mock.patch.object(notify.sys, 'platform', 'win32'), \
+         mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch('subprocess.run') as mock_run:
+        mock_run.return_value.stdout = 'Code'
+        assert notify._is_vscode_foreground() is True
+
+
+def test_is_vscode_foreground_windows_false():
+    """When foreground process is not Code, return False."""
+    with mock.patch.object(notify.sys, 'platform', 'win32'), \
+         mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch('subprocess.run') as mock_run:
+        mock_run.return_value.stdout = 'Terminal'
+        assert notify._is_vscode_foreground() is False
+
+
+def test_is_vscode_foreground_macos_true():
+    """When frontmost app is Visual Studio Code, return True."""
+    with mock.patch.object(notify.sys, 'platform', 'darwin'), \
+         mock.patch('subprocess.run') as mock_run:
+        mock_run.return_value.stdout = 'Visual Studio Code'
+        assert notify._is_vscode_foreground() is True
+
+
+def test_is_vscode_foreground_fail_open_missing_command():
+    """When detection command is missing, return False (fail open → fire)."""
+    with mock.patch.object(notify.sys, 'platform', 'win32'), \
+         mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch('subprocess.run', side_effect=FileNotFoundError):
+        assert notify._is_vscode_foreground() is False
+
+
+def test_is_vscode_foreground_fail_open_timeout():
+    """When detection times out, return False (fail open → fire)."""
+    with mock.patch.object(notify.sys, 'platform', 'win32'), \
+         mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch('subprocess.run',
+                    side_effect=subprocess.TimeoutExpired(cmd='powershell', timeout=1)):
+        assert notify._is_vscode_foreground() is False
+
+
+def test_is_vscode_foreground_wsl_uses_powershell_exe():
+    """On WSL2, uses powershell.exe for detection."""
+    with mock.patch.object(notify.sys, 'platform', 'linux'), \
+         mock.patch.object(notify, '_is_wsl', return_value=True), \
+         mock.patch('subprocess.run') as mock_run:
+        mock_run.return_value.stdout = 'Code'
+        notify._is_vscode_foreground()
+        assert mock_run.call_args[0][0][0] == 'powershell.exe'
+
+
+def test_is_vscode_foreground_linux_xdotool_not_found():
+    """When xdotool is not installed on Linux, return False."""
+    with mock.patch.object(notify.sys, 'platform', 'linux'), \
+         mock.patch.object(notify, '_is_wsl', return_value=False), \
+         mock.patch.object(notify.shutil, 'which', return_value=None):
+        assert notify._is_vscode_foreground() is False
+
+
+# ---------------------------------------------------------------------------
+# Foreground gating in main()
+# ---------------------------------------------------------------------------
+
+def test_main_suppresses_when_foreground():
+    """When VS Code is foreground and env var not set, dispatch is skipped."""
+    with mock.patch.object(notify.sys, 'argv', ['notify.py', 'stop']), \
+         mock.patch.object(notify.sys, 'stdin', io.StringIO('{}')), \
+         mock.patch.object(notify.sys, 'exit'), \
+         mock.patch.object(notify, 'get_state_path', return_value=Path(tempfile.gettempdir()) / 'fg-test.json'), \
+         mock.patch.object(notify, 'clear_state'), \
+         mock.patch.object(notify, '_is_vscode_foreground', return_value=True), \
+         mock.patch.object(notify, 'dispatch') as mock_dispatch, \
+         mock.patch.dict(os.environ, {}, clear=True):
+        notify.clear_state(notify.get_state_path())
+        notify.main()
+        mock_dispatch.assert_not_called()
+
+
+def test_main_fires_when_foreground_with_env_override():
+    """When CLAUDE_WAKEUP_FOREGROUND=1, fires even if foreground."""
+    with mock.patch.object(notify.sys, 'argv', ['notify.py', 'stop']), \
+         mock.patch.object(notify.sys, 'stdin', io.StringIO('{}')), \
+         mock.patch.object(notify.sys, 'exit'), \
+         mock.patch.object(notify, 'get_state_path', return_value=Path(tempfile.gettempdir()) / 'fg-test.json'), \
+         mock.patch.object(notify, 'clear_state'), \
+         mock.patch.object(notify, '_is_vscode_foreground', return_value=True), \
+         mock.patch.object(notify, 'dispatch') as mock_dispatch, \
+         mock.patch.dict(os.environ, {'CLAUDE_WAKEUP_FOREGROUND': '1'}):
+        notify.clear_state(notify.get_state_path())
+        notify.main()
+        mock_dispatch.assert_called_once()
+
+
+def test_main_fires_when_not_foreground():
+    """When VS Code is not foreground, dispatch is called normally."""
+    with mock.patch.object(notify.sys, 'argv', ['notify.py', 'stop']), \
+         mock.patch.object(notify.sys, 'stdin', io.StringIO('{}')), \
+         mock.patch.object(notify.sys, 'exit'), \
+         mock.patch.object(notify, 'get_state_path', return_value=Path(tempfile.gettempdir()) / 'fg-test.json'), \
+         mock.patch.object(notify, 'clear_state'), \
+         mock.patch.object(notify, '_is_vscode_foreground', return_value=False), \
+         mock.patch.object(notify, 'dispatch') as mock_dispatch, \
+         mock.patch.dict(os.environ, {}, clear=True):
+        notify.clear_state(notify.get_state_path())
+        notify.main()
+        mock_dispatch.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
