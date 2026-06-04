@@ -183,7 +183,8 @@ def test_build_payload_error():
 
 def test_notify_linux_command():
     payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
-    with mock.patch('subprocess.run') as mock_run:
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_is_wsl', return_value=False):
         notify._notify_linux(payload)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
@@ -194,6 +195,17 @@ def test_notify_linux_command():
         assert 'Hello' in args
         assert mock_run.call_args[1]['timeout'] == 5
         assert mock_run.call_args[1]['check'] is False
+
+
+def test_notify_linux_wsl():
+    """On WSL2, use PowerShell toast notifications."""
+    payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_is_wsl', return_value=True):
+        notify._notify_linux(payload)
+        args = mock_run.call_args[0][0]
+        assert args[0] == 'powershell.exe'
+        assert '-Command' in args
 
 
 def test_notify_macos_terminal_notifier():

@@ -148,14 +148,44 @@ def read_event_context():
 # Platform notification backends
 # ---------------------------------------------------------------------------
 
+def _is_wsl():
+    """Return True if running under WSL (Windows Subsystem for Linux)."""
+    return os.environ.get('WSL_DISTRO_NAME') is not None
+
+
 def _notify_linux(payload):
-    """Send notification via notify-send (libnotify)."""
+    """Send notification via notify-send (libnotify). On WSL2, uses PowerShell."""
+    if _is_wsl():
+        _notify_wsl(payload)
+        return
+
     cmd = ['notify-send', '--app-name', 'Claude Code']
     urgency = payload.get('urgency')
     if urgency and urgency in ('low', 'normal', 'critical'):
         cmd += ['--urgency', urgency]
     cmd += [payload['title'], payload['message']]
     subprocess.run(cmd, check=False, timeout=5,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _notify_wsl(payload):
+    """Send notification via PowerShell toast on WSL2."""
+    title = payload['title'].replace("'", "''")
+    message = payload['message'].replace("'", "''")
+    ps = (
+        "[Windows.UI.Notifications.ToastNotificationManager,"
+        "Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
+        "$t=[Windows.UI.Notifications.ToastNotificationManager]"
+        "::GetTemplateContent(2);"
+        "$t.GetElementsByTagName('text').Item(0).AppendChild("
+        "$t.CreateTextNode('%s'))|Out-Null;"
+        "$t.GetElementsByTagName('text').Item(1).AppendChild("
+        "$t.CreateTextNode('%s'))|Out-Null;"
+        "[Windows.UI.Notifications.ToastNotificationManager]"
+        "::CreateToastNotifier('Claude Code').Show("
+        "[Windows.UI.Notifications.ToastNotification]::new($t))"
+    ) % (title, message)
+    subprocess.run(['powershell.exe', '-Command', ps], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
