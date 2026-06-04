@@ -159,6 +159,7 @@ def test_build_payload_permission():
         assert payload['title'] == 'Claude needs permission — my-project'
         assert 'Bash' in payload['message']
         assert payload['urgency'] == 'normal'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 def test_build_payload_stop():
@@ -167,6 +168,7 @@ def test_build_payload_stop():
         assert payload['title'] == 'Claude finished — my-project'
         assert 'complete' in payload['message'].lower()
         assert payload['urgency'] == 'low'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 def test_build_payload_error():
@@ -175,6 +177,7 @@ def test_build_payload_error():
         assert payload['title'] == 'Claude hit an error — my-project'
         assert 'test failure' in payload['message']
         assert payload['urgency'] == 'critical'
+        assert payload['action'] == 'code /home/user/my-project'
 
 
 # ---------------------------------------------------------------------------
@@ -301,13 +304,89 @@ def test_notify_macos_fallback_osascript():
         assert args[0] == 'osascript'
 
 
-def test_notify_windows_powershell():
+def test_notify_macos_without_action():
+    """When payload has no action key, terminal-notifier omits -execute."""
     payload = {'title': 'Test', 'message': 'Hello'}
-    with mock.patch('subprocess.run') as mock_run:
+    with mock.patch.object(notify.shutil, 'which', return_value='/usr/local/bin/terminal-notifier'), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_macos(payload)
+        args = mock_run.call_args[0][0]
+        assert '-execute' not in args
+
+
+def test_notify_macos_subprocess_contract():
+    """_notify_macos preserves check=False, timeout=5, DEVNULL redirection."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch.object(notify.shutil, 'which', return_value='/usr/local/bin/terminal-notifier'), \
+         mock.patch('subprocess.run') as mock_run:
+        notify._notify_macos(payload)
+        kwargs = mock_run.call_args[1]
+        assert kwargs['check'] is False
+        assert kwargs['timeout'] == 5
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+
+
+def test_notify_windows_powershell():
+    """Native Windows uses XmlDocument toast with vscode://file/ click-to-focus."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
         notify._notify_windows(payload)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert args[0] == 'powershell'
+        assert '-Command' in args
+        ps_script = args[2]
+        # XmlDocument-based approach
+        assert 'Windows.Data.Xml.Dom.XmlDocument' in ps_script
+        assert '$x=[Windows.Data.Xml.Dom.XmlDocument]::new()' in ps_script
+        assert "$x.LoadXml(" in ps_script
+        # Click-to-focus action with forward-slash-normalized path
+        assert '<actions>' in ps_script
+        assert 'activationType="protocol"' in ps_script
+        assert 'vscode://file/C:/Users/test/project' in ps_script
+        # Uses registered PowerShell AUMID
+        assert '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}' in ps_script
+        # Title and message embedded in XML
+        assert '<text>Test</text>' in ps_script
+        assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_windows_escapes_special_characters():
+    """XML-escape title/message text containing &, <, >, ', \" characters."""
+    payload = {'title': "A & B < C > D", 'message': "He said \"hello\" — isn't it?"}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
+        notify._notify_windows(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        # Escaped characters in the XML
+        assert '&amp;' in ps_script
+        assert '&lt;' in ps_script
+        assert '&gt;' in ps_script
+        assert '&quot;' in ps_script
+        assert '&apos;' in ps_script
+        # Raw unescaped characters should not appear inside LoadXml
+        load_xml_start = ps_script.index("$x.LoadXml('") + len("$x.LoadXml('")
+        load_xml_end = ps_script.index("');", load_xml_start)
+        xml_content = ps_script[load_xml_start:load_xml_end]
+        assert ' & ' not in xml_content
+        assert ' < ' not in xml_content
+        assert ' > ' not in xml_content
+        assert "'" not in xml_content  # single quotes escaped for PowerShell
+
+
+def test_notify_windows_subprocess_contract():
+    """_notify_windows preserves check=False, timeout=10, DEVNULL redirection."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
+        notify._notify_windows(payload)
+        kwargs = mock_run.call_args[1]
+        assert kwargs['check'] is False
+        assert kwargs['timeout'] == 10
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
 
 
 # ---------------------------------------------------------------------------

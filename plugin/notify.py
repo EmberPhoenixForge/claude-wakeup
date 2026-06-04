@@ -252,22 +252,45 @@ def _notify_macos(payload):
 
 
 def _notify_windows(payload):
-    """Send notification via PowerShell toast (Windows 10+)."""
-    title = payload['title'].replace("'", "''")
-    message = payload['message'].replace("'", "''")
+    """Send notification via PowerShell toast on Windows with click-to-focus.
+
+    Builds custom toast XML with a clickable action using the vscode://
+    protocol. Mirrors the WSL2 XmlDocument approach with a vscode://file/
+    URI for native Windows paths.
+    """
+    def _xml_escape(s):
+        return xml.sax.saxutils.escape(s, {'"': '&quot;', "'": '&apos;'})
+
+    title = _xml_escape(payload['title'])
+    message = _xml_escape(payload['message'])
+
+    # Normalize Windows backslashes to forward slashes for a valid URI
+    vscode_uri = 'vscode://file/' + os.getcwd().replace('\\', '/')
+    toast_xml = (
+        '<toast><visual><binding template="ToastGeneric">'
+        f'<text>{title}</text>'
+        f'<text>{message}</text>'
+        '</binding></visual>'
+        '<actions>'
+        f'<action content="Open VS Code" arguments="{vscode_uri}" activationType="protocol"/>'
+        '</actions></toast>'
+    )
+
+    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+
     ps_script = (
-        "[Windows.UI.Notifications.ToastNotificationManager,"
-        "Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
-        "$t=[Windows.UI.Notifications.ToastNotificationManager]"
-        "::GetTemplateContent(2);"
-        "$t.GetElementsByTagName('text').Item(0).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "$t.GetElementsByTagName('text').Item(1).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "[Windows.UI.Notifications.ToastNotificationManager]"
-        "::CreateToastNotifier('Claude Code').Show("
-        "[Windows.UI.Notifications.ToastNotification]::new($t))"
-    ) % (title, message)
+        '[Windows.UI.Notifications.ToastNotificationManager,'
+        'Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;'
+        '[Windows.Data.Xml.Dom.XmlDocument,'
+        'Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;'
+        '$x=[Windows.Data.Xml.Dom.XmlDocument]::new();'
+        f"$x.LoadXml('{toast_xml}');"
+        '[Windows.UI.Notifications.ToastNotificationManager]'
+        f"::CreateToastNotifier('{aumid}').Show("
+        '[Windows.UI.Notifications.ToastNotification]::new($x))'
+    )
+
     subprocess.run(['powershell', '-Command', ps_script], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -299,6 +322,8 @@ def dispatch(payload):
 def build_payload(event, context):
     """Build a structured notification payload from event type and context."""
     project = os.path.basename(os.getcwd())
+    project_path = os.getcwd()
+    action = f'code {project_path}'
 
     if event == 'permission':
         tool = context.get('tool_name', 'a tool')
@@ -306,12 +331,14 @@ def build_payload(event, context):
             'title': f'Claude needs permission — {project}',
             'message': f'Claude wants to run {tool}. Switch to VS Code to approve or deny.',
             'urgency': 'normal',
+            'action': action,
         }
     if event == 'stop':
         return {
             'title': f'Claude finished — {project}',
             'message': 'Task complete. Switch to VS Code for next steps.',
             'urgency': 'low',
+            'action': action,
         }
     if event == 'error':
         error_msg = context.get('error', 'an error occurred')
@@ -319,6 +346,7 @@ def build_payload(event, context):
             'title': f'Claude hit an error — {project}',
             'message': f'{error_msg}. Switch to VS Code to help resolve it.',
             'urgency': 'critical',
+            'action': action,
         }
     return None
 

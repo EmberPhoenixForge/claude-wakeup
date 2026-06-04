@@ -40,16 +40,18 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 
 | Platform | Notification backend | Click-to-focus |
 |----------|---------------------|----------------|
-| Linux | `notify-send` (libnotify) | `wmctrl` or `xdotool` |
-| macOS | `terminal-notifier` (preferred) or `osascript` | terminal-notifier `-execute` |
-| Windows | PowerShell toast notifications | `vscode://` protocol via toast action |
+| Linux | `notify-send` (libnotify) | Not yet supported |
+| macOS | `terminal-notifier` (preferred) or `osascript` | `code <project-path>` via terminal-notifier `-execute` |
+| Windows | PowerShell toast notifications | `vscode://` protocol via XmlDocument toast action |
 
 **WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications with `vscode://` protocol for click-to-focus. No additional setup required.
+
+**VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2. Terminal Claude Code (non-VS Code extension) is not yet supported.
 
 ## Requirements
 
 - Python 3.10+
-- Claude Code with plugin support
+- Claude Code with plugin support (VS Code extension)
 - Platform notification daemon (libnotify on Linux, terminal-notifier on macOS)
 
 ## Development
