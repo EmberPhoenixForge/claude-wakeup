@@ -50,18 +50,19 @@ def test_get_session_id_fallback():
         assert len(sid) == 12  # MD5 hex truncated
 
 
-def test_get_state_path_linux():
+def test_get_state_path_uses_temp_dir():
     with mock.patch.object(sys, 'platform', 'linux-x86_64'), \
          mock.patch.object(notify, 'get_session_id', return_value='test-session'):
         path = notify.get_state_path()
-        assert path == Path('/tmp/claude-wakeup-test-session.json')
+        assert path.name == 'claude-wakeup-test-session.json'
+        assert 'tmp' in str(path.parent).lower() or 'temp' in str(path.parent).lower()
 
 
 def test_get_state_path_sanitizes_colons():
     with mock.patch.object(sys, 'platform', 'linux-x86_64'), \
          mock.patch.object(notify, 'get_session_id', return_value='a:b/c\\d'):
         path = notify.get_state_path()
-        assert str(path) == '/tmp/claude-wakeup-a-b-c-d.json'
+        assert path.name == 'claude-wakeup-a-b-c-d.json'
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +70,10 @@ def test_get_state_path_sanitizes_colons():
 # ---------------------------------------------------------------------------
 
 def test_read_state_missing():
-    assert notify.read_state(Path('/tmp/nonexistent-wakeup-test.json')) is None
+    nonexistent = Path(tempfile.gettempdir()) / 'claude-wakeup-nonexistent-test.json'
+    # ensure clean
+    nonexistent.unlink(missing_ok=True)
+    assert notify.read_state(nonexistent) is None
 
 
 def test_write_and_read_state():
@@ -119,7 +123,9 @@ def test_clear_state():
 
 
 def test_clear_state_missing_is_noop():
-    notify.clear_state(Path('/tmp/nonexistent-wakeup-clear.json'))
+    nonexistent = Path(tempfile.gettempdir()) / 'claude-wakeup-nonexistent-clear.json'
+    nonexistent.unlink(missing_ok=True)
+    notify.clear_state(nonexistent)
 
 
 # ---------------------------------------------------------------------------
@@ -252,16 +258,19 @@ def test_notify_linux_not_found_silent():
 # Dedup logic (R7, AE1)
 # ---------------------------------------------------------------------------
 
+def _dedup_state_path(name):
+    """Return a cross-platform temp path for dedup testing."""
+    return Path(tempfile.gettempdir()) / f'claude-wakeup-test-dedup-{name}.json'
+
+
 def test_dedup_permission_first_fires():
     """First permission in a cycle should fire a notification."""
-    state_path = Path('/tmp/claude-wakeup-test-dedup.json')
-    # Clean up any leftover
+    state_path = _dedup_state_path('first')
     notify.clear_state(state_path)
     try:
         state = notify.read_state(state_path)
         assert state is None  # fresh cycle
 
-        # Simulate first permission event
         notify.write_state(state_path, {'permission_fired': True})
         state = notify.read_state(state_path)
         assert state is not None
@@ -272,13 +281,10 @@ def test_dedup_permission_first_fires():
 
 def test_dedup_permission_second_suppressed():
     """Second permission in same cycle should be suppressed."""
-    state_path = Path('/tmp/claude-wakeup-test-dedup2.json')
+    state_path = _dedup_state_path('second')
     notify.clear_state(state_path)
     try:
-        # First: set state
         notify.write_state(state_path, {'permission_fired': True})
-
-        # Second: read state should show already fired
         state = notify.read_state(state_path)
         assert state is not None
         assert state.get('permission_fired') is True
@@ -288,7 +294,7 @@ def test_dedup_permission_second_suppressed():
 
 def test_dedup_cycle_reset_clears_state():
     """UserPromptSubmit should clear the dedup state."""
-    state_path = Path('/tmp/claude-wakeup-test-dedup3.json')
+    state_path = _dedup_state_path('reset')
     notify.clear_state(state_path)
     try:
         notify.write_state(state_path, {'permission_fired': True})
@@ -300,23 +306,19 @@ def test_dedup_cycle_reset_clears_state():
 
 def test_dedup_stop_always_fires():
     """Stop event should fire regardless of prior permission notification."""
-    state_path = Path('/tmp/claude-wakeup-test-dedup4.json')
+    state_path = _dedup_state_path('stop')
     notify.clear_state(state_path)
     try:
-        # Permission fired earlier in the cycle
         notify.write_state(state_path, {'permission_fired': True})
-
-        # Stop should still dispatch (not gated by permission_fired)
         state = notify.read_state(state_path)
         assert state is not None
-        # stop doesn't check permission_fired — it always fires
     finally:
         notify.clear_state(state_path)
 
 
 def test_dedup_cleanup_removes_state():
     """SessionEnd should remove the state file entirely."""
-    state_path = Path('/tmp/claude-wakeup-test-dedup5.json')
+    state_path = _dedup_state_path('cleanup')
     notify.clear_state(state_path)
     try:
         notify.write_state(state_path, {'permission_fired': True})
@@ -345,8 +347,8 @@ def test_session_scoped_state_path():
 # ---------------------------------------------------------------------------
 
 def test_missing_state_treated_as_first_event():
-    path = Path('/tmp/claude-wakeup-nonexistent-for-test.json')
-    notify.clear_state(path)
+    path = Path(tempfile.gettempdir()) / 'claude-wakeup-nonexistent-for-test.json'
+    path.unlink(missing_ok=True)
     state = notify.read_state(path)
     assert state is None  # missing → fresh cycle
 
