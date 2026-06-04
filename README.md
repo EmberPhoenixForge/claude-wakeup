@@ -40,13 +40,14 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 
 ## Platform support
 
-| Platform | Notification backend | Click-to-focus |
-|----------|---------------------|----------------|
-| Linux | `notify-send` (libnotify) | Not yet supported |
-| macOS | `terminal-notifier` (preferred) or `osascript` | `code <project-path>` via terminal-notifier `-execute` |
-| Windows | PowerShell toast notifications | `vscode://` protocol via XmlDocument toast action |
+| Platform | Notification backend | Click-to-focus | Foreground detection | Status |
+|----------|---------------------|----------------|---------------------|--------|
+| WSL2 | PowerShell toast | `vscode://` protocol via XmlDocument toast action | PowerShell `GetForegroundWindow` P/Invoke | Ready |
+| Windows | PowerShell toast | `vscode://` protocol via XmlDocument toast action | PowerShell `GetForegroundWindow` P/Invoke | Beta |
+| macOS | `terminal-notifier` (preferred) or `osascript` | `code <project-path>` via terminal-notifier `-execute` | `osascript` System Events | Beta |
+| Linux | `notify-send` (libnotify) | Not yet supported | `xdotool` (X11 only, Wayland falls back to always-fire) | Alpha |
 
-**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications with `vscode://` protocol for click-to-focus. No additional setup required.
+**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required.
 
 **VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2. Terminal Claude Code (non-VS Code extension) is not yet supported.
 
