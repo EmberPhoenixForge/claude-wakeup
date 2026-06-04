@@ -169,7 +169,7 @@ def _notify_linux(payload):
 
 
 def _notify_wsl(payload):
-    """Send notification via PowerShell toast on WSL2."""
+    """Send notification via PowerShell toast on WSL2 with click-to-focus."""
     title = payload['title'].replace("'", "''")
     message = payload['message'].replace("'", "''")
     ps = (
@@ -177,13 +177,17 @@ def _notify_wsl(payload):
         "Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
         "$t=[Windows.UI.Notifications.ToastNotificationManager]"
         "::GetTemplateContent(2);"
-        "$t.GetElementsByTagName('text').Item(0).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
-        "$t.GetElementsByTagName('text').Item(1).AppendChild("
-        "$t.CreateTextNode('%s'))|Out-Null;"
+        "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;"
+        "$x.LoadXml($t.GetXml());"
+        "$x.SelectSingleNode('//toast').SetAttribute('activationType','protocol');"
+        "$x.SelectSingleNode('//toast').SetAttribute('launch','vscode://');"
+        "$x.GetElementsByTagName('text').Item(0).AppendChild("
+        "$x.CreateTextNode('%s'))|Out-Null;"
+        "$x.GetElementsByTagName('text').Item(1).AppendChild("
+        "$x.CreateTextNode('%s'))|Out-Null;"
         "[Windows.UI.Notifications.ToastNotificationManager]"
         "::CreateToastNotifier('Claude Code').Show("
-        "[Windows.UI.Notifications.ToastNotification]::new($t))"
+        "[Windows.UI.Notifications.ToastNotification]::new($x))"
     ) % (title, message)
     subprocess.run(['powershell.exe', '-Command', ps], check=False, timeout=10,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -42,7 +42,7 @@ After installing, run `/claude-wakeup:config` in any Claude Code session to veri
 |----------|---------------------|----------------|
 | Linux | `notify-send` (libnotify) | `wmctrl` or `xdotool` |
 | macOS | `terminal-notifier` (preferred) or `osascript` | terminal-notifier `-execute` |
-| Windows | PowerShell toast notifications | Not supported (COM registration required) |
+| Windows | PowerShell toast notifications | `vscode://` protocol activation |
 
 **WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications directly. No additional setup required.
 
