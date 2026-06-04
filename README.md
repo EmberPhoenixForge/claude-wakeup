@@ -10,6 +10,8 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 - **Task completion** — know the moment Claude finishes
 - **Errors** — alerted when Claude can't proceed without you
 
+By default, notifications are suppressed when VS Code is the active foreground window — no need to ping you when you're already looking at Claude. Set `CLAUDE_WAKEUP_FOREGROUND=1` to fire notifications regardless.
+
 ## Install
 
 **Via plugin marketplace (recommended):**

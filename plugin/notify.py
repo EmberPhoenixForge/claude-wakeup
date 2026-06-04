@@ -154,6 +154,72 @@ def _is_wsl():
     return os.environ.get('WSL_DISTRO_NAME') is not None
 
 
+def _is_vscode_foreground():
+    """Return True if VS Code is the foreground (active) window.
+
+    Uses platform-specific detection commands. Any failure (command missing,
+    timeout, unexpected output) returns False — fail open, notification
+    fires anyway.
+    """
+    try:
+        if sys.platform in ('win32', 'cygwin'):
+            return _foreground_windows()
+        if sys.platform == 'darwin':
+            return _foreground_macos()
+        if sys.platform.startswith('linux'):
+            if _is_wsl():
+                return _foreground_windows()
+            return _foreground_linux()
+    except Exception:
+        pass
+    return False
+
+
+def _foreground_windows():
+    """Check foreground window via PowerShell (Windows and WSL2)."""
+    ps = (
+        'Add-Type -Name Foreground -Namespace Win32 -MemberDefinition '
+        "'[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();"
+        '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId'
+        '(IntPtr hWnd, out uint lpdwProcessId);'
+        "';"
+        '$hwnd = [Win32.Foreground]::GetForegroundWindow();'
+        '$pid = 0;'
+        '[Win32.Foreground]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null;'
+        '(Get-Process -Id $pid).ProcessName'
+    )
+    proc = subprocess.run(
+        ['powershell.exe' if _is_wsl() else 'powershell', '-Command', ps],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and 'Code' in proc.stdout)
+
+
+def _foreground_macos():
+    """Check frontmost application via osascript."""
+    script = ('tell application "System Events" to get name of first '
+              'application process whose frontmost is true')
+    proc = subprocess.run(
+        ['osascript', '-e', script],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and (
+        'Visual Studio Code' in proc.stdout or 'Code' in proc.stdout))
+
+
+def _foreground_linux():
+    """Check active window title via xdotool (X11 only)."""
+    if not shutil.which('xdotool'):
+        return False
+    proc = subprocess.run(
+        ['xdotool', 'getactivewindow', 'getwindowname'],
+        check=False, timeout=1, capture_output=True, text=True,
+    )
+    return bool(proc.stdout and (
+        'Visual Studio Code' in proc.stdout or 'Code' in proc.stdout))
+
+
+
 def _notify_linux(payload):
     """Send notification via notify-send (libnotify). On WSL2, uses PowerShell."""
     if _is_wsl():
@@ -387,8 +453,14 @@ def main():
 
         payload = build_payload(event, context)
         if payload:
-            dispatch(payload)
-            _log(event, 'dispatched', payload.get('message', ''))
+            # Suppress notification when VS Code is already in the foreground
+            # (CLAUDE_WAKEUP_FOREGROUND=1 overrides to fire regardless)
+            if (os.environ.get('CLAUDE_WAKEUP_FOREGROUND') != '1'
+                    and _is_vscode_foreground()):
+                _log(event, 'suppressed', 'foreground')
+            else:
+                dispatch(payload)
+                _log(event, 'dispatched', payload.get('message', ''))
 
         # Update dedup state
         if state is None:
