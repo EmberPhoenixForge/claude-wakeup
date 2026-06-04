@@ -12,12 +12,21 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 
 ## Install
 
-1. Copy or symlink this directory into `~/.claude/plugins/claude-wakeup/`:
-   ```
-   make install
-   ```
-2. Enable the plugin in Claude Code settings.
-3. Run `/claude-wakeup:config` in any Claude Code session to verify setup.
+**Via plugin marketplace (recommended):**
+
+```
+/plugin marketplace add https://github.com/atbore-phx/claude-wakeup
+/plugin install claude-wakeup
+```
+
+**Manual install:**
+
+```
+make install   # prints install instructions
+cp -r . ~/.claude/plugins/claude-wakeup
+```
+
+After installing, run `/claude-wakeup:config` in any Claude Code session to verify setup.
 
 ## Slash commands
 
@@ -46,8 +55,10 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 ## Development
 
 ```
-make test    # Run tests (pytest + shellcheck)
+make test    # Run tests (pytest + shellcheck) — creates a .venv automatically
 make lint    # Lint shell scripts and Python
-make clean   # Remove build artifacts
-make install # Install plugin to ~/.claude/plugins/
+make clean   # Remove build artifacts and venv
+make install # Print install instructions
 ```
+
+First run of `make test` creates a `.venv` with `pytest`. Requires `python3-venv` (on Debian/Ubuntu: `sudo apt install python3-venv`).

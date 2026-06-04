@@ -1,5 +1,6 @@
 """Tests for notify.py — the Claude Wakeup notification dispatch engine."""
 
+import io
 import json
 import os
 import subprocess
@@ -127,19 +128,19 @@ def test_clear_state_missing_is_noop():
 
 def test_read_event_context_valid_json():
     stdin_data = '{"tool_name": "Bash", "project_path": "/home/user/project"}'
-    with mock.patch.object(sys, 'stdin', mock.StringIO(stdin_data)):
+    with mock.patch.object(sys, 'stdin', io.StringIO(stdin_data)):
         ctx = notify.read_event_context()
         assert ctx == {'tool_name': 'Bash', 'project_path': '/home/user/project'}
 
 
 def test_read_event_context_empty():
-    with mock.patch.object(sys, 'stdin', mock.StringIO('')):
+    with mock.patch.object(sys, 'stdin', io.StringIO('')):
         ctx = notify.read_event_context()
         assert ctx == {}
 
 
 def test_read_event_context_invalid_json():
-    with mock.patch.object(sys, 'stdin', mock.StringIO('not-json')):
+    with mock.patch.object(sys, 'stdin', io.StringIO('not-json')):
         ctx = notify.read_event_context()
         assert ctx == {}
 
@@ -240,15 +241,11 @@ def test_dispatch_silent_on_missing_command():
 
 
 def test_notify_linux_not_found_silent():
+    """Backend raises on missing command; dispatch() wrapper catches it (R11)."""
     payload = {'title': 'Test', 'message': 'Hello'}
-    with mock.patch('subprocess.run', side_effect=FileNotFoundError):
-        notify._notify_linux(payload)  # caught by dispatch() wrapper
-    # _notify_linux itself will raise; dispatch() catches it
-    # This test verifies the backend raises on FileNotFoundError for coverage
-    try:
-        notify._notify_linux(payload)
-    except FileNotFoundError:
-        pass  # expected — dispatch() wraps this
+    with mock.patch.object(notify, 'detect_platform', return_value='linux'), \
+         mock.patch('subprocess.run', side_effect=FileNotFoundError):
+        notify.dispatch(payload)  # dispatch() eats the exception silently
 
 
 # ---------------------------------------------------------------------------

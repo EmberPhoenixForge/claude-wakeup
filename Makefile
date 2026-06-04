@@ -1,38 +1,40 @@
 .PHONY: install test lint clean
 
-PLUGIN_NAME := claude-wakeup
-PLUGIN_DIR  := $(HOME)/.claude/plugins/$(PLUGIN_NAME)
+VENV := .venv
+PIP   := $(VENV)/bin/pip
+PYTHON := $(VENV)/bin/python
 
-install:
-	@echo "Installing $(PLUGIN_NAME) to $(PLUGIN_DIR)..."
-	@rm -rf "$(PLUGIN_DIR)"
-	@mkdir -p "$(PLUGIN_DIR)"
-	@cp -r .claude-plugin hooks notify.py commands "$(PLUGIN_DIR)/"
-	@echo "Done. Enable the plugin in Claude Code settings or run /claude-wakeup:config."
+$(VENV):
+	@python3 -m venv $(VENV)
+	@$(PIP) install --upgrade pip -q
+	@$(PIP) install -r requirements.txt -q
 
-test:
+install: $(VENV)
+	@echo "Claude Wakeup install options:"
+	@echo ""
+	@echo "  Recommended: /plugin marketplace add https://github.com/atbore-phx/claude-wakeup"
+	@echo "              /plugin install claude-wakeup"
+	@echo ""
+	@echo "  Manual:     cp -r . $$HOME/.claude/plugins/claude-wakeup"
+	@echo ""
+	@echo "See README.md for setup details."
+
+test: $(VENV)
 	@echo "Running tests..."
-	@if command -v python3 >/dev/null 2>&1; then \
-		python3 -m pytest tests/ -v 2>/dev/null || python3 -c "import ast; [ast.parse(open(f).read()) for f in ['notify.py','tests/test_notify.py','tests/test_hooks_config.py']]; print('Syntax check passed (pytest not available — install with: python3 -m pip install pytest)')"; \
-	else \
-		echo "python3 not found — skipping tests"; \
-	fi
+	@$(PYTHON) -m pytest tests/ -v
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		shellcheck hooks/notify.sh; \
 	else \
-		echo "shellcheck not found — skipping shell lint (install: apt install shellcheck)"; \
+		echo "shellcheck not found — skipping (install: apt install shellcheck)"; \
 	fi
 
-lint:
+lint: $(VENV)
 	@echo "Linting..."
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		shellcheck hooks/notify.sh || true; \
 	fi
-	@if command -v python3 >/dev/null 2>&1; then \
-		python3 -m py_compile notify.py && echo "notify.py: OK" || true; \
-	fi
+	@$(PYTHON) -m py_compile notify.py && echo "notify.py: OK"
 
 clean:
 	@echo "Cleaning..."
-	@rm -rf __pycache__ .pytest_cache tests/__pycache__
-
+	@rm -rf __pycache__ .pytest_cache tests/__pycache__ $(VENV)
