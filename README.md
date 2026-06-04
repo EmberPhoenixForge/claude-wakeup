@@ -15,7 +15,7 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 **Via plugin marketplace (recommended):**
 
 ```
-/plugin marketplace add https://github.com/atbore-phx/claude-wakeup
+/plugin marketplace add EmberPhoenixForge/claude-wakeup
 /plugin install claude-wakeup
 ```
 
