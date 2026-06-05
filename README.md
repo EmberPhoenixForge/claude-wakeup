@@ -8,6 +8,7 @@ OS-native desktop notifications for Claude Code VS Code Extension. Get notified 
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Install](#install)
+- [Update](#update)
 - [Configuration](#configuration)
 - [Slash commands](#slash-commands)
 - [Development & Contributions](#development--contributions)
@@ -51,9 +52,18 @@ By default, notifications are suppressed when VS Code is the active foreground w
 ```
 /plugin marketplace add EmberPhoenixForge/claude-wakeup
 /plugin install claude-wakeup
+/reload-plugins
 ```
-
 After installing, run `/claude-wakeup:config` in any Claude Code session to verify setup.
+
+## Update
+
+**Via plugin marketplace (recommended):**
+
+```
+/plugin marketplace update claude-wakeup-plugin
+/reload-plugins
+```
 
 ## Configuration
 
