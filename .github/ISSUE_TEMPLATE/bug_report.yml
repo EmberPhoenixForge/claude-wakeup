@@ -1,5 +1,5 @@
 name: Bug report
-description: Report incorrect or unexpected behavior in sbam.
+description: Report incorrect or unexpected behavior in claude-wakeup.
 title: "[Bug]: "
 labels:
   - bug
@@ -7,9 +7,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug in sbam.
+        Thanks for reporting a bug in claude-wakeup.
 
-        This form captures details that help maintainers and Copilot prompts build a precise fix plan.
+        This form captures details that help maintainers and AI prompts build a precise fix plan.
 
   - type: input
     id: summary
@@ -90,7 +90,7 @@ body:
       description: Include platform and runtime details.
       placeholder: |
         OS:
-        sbam version/commit:
+        claude-wakeup version/commit:
         Go version (if running locally):
         Deployment mode (CLI, Docker, Home Assistant add-on):
         Fronius firmware (if relevant):

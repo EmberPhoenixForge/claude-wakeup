@@ -2,6 +2,17 @@
 
 OS-native desktop notifications for Claude Code VS Code Extension. Get notified when Claude needs your attention — permission prompts, task completion, and errors. Click a notification to bring VS Code to the foreground.
 
+## Table of contents
+
+- [Platform support](#platform-support)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Slash commands](#slash-commands)
+- [Development & Contributions](#development--contributions)
+- [Support](#support-)
+
 ## Platform support
 
 | Platform | Notification backend | Click-to-focus | Foreground detection | Status |
@@ -15,8 +26,7 @@ OS-native desktop notifications for Claude Code VS Code Extension. Get notified 
 
 **WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required. The first time you click a notification to focus VS Code, Windows will show an authorization popup — choose "Always allow" to avoid being prompted on subsequent clicks.
 
-**VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2. \
-Terminal Claude Code (non-VS Code extension) is not yet supported.
+**VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2.
 
 ## How it works
 
