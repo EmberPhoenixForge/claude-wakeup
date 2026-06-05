@@ -25,7 +25,8 @@ OS-native desktop notifications for Claude Code VS Code Extension. Get notified 
 
 ¹ `terminal-notifier` is optional for basic notifications, but required for click-to-focus on macOS.
 
-**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required. The first time you click a notification to focus VS Code, Windows will show an authorization popup — choose "Always allow" to avoid being prompted on subsequent clicks.
+**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required. \
+The first time you click a notification to focus VS Code, Windows will show an authorization popup — choose "Always allow" to avoid being prompted on subsequent clicks.
 
 **VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2.
 
