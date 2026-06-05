@@ -205,6 +205,8 @@ def test_notify_linux_wsl():
     payload = {'title': 'Test', 'message': 'Hello', 'urgency': 'normal'}
     with mock.patch('subprocess.run') as mock_run, \
          mock.patch.object(notify, '_is_wsl', return_value=True), \
+         mock.patch.object(notify, '_resolve_aumid',
+                           return_value='Microsoft.VisualStudioCode'), \
          mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'vibe-legox'}), \
          mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
         notify._notify_linux(payload)
@@ -220,11 +222,26 @@ def test_notify_linux_wsl():
         assert '<actions>' in ps_script
         assert 'activationType="protocol"' in ps_script
         assert 'vscode://vscode-remote/wsl+vibe-legox/home/user/project' in ps_script
-        # Uses registered PowerShell AUMID
-        assert '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}' in ps_script
+        # Uses VS Code AUMID
+        assert 'Microsoft.VisualStudioCode' in ps_script
         # Title and message embedded in XML
         assert '<text>Test</text>' in ps_script
         assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_linux_wsl_fallback_aumid():
+    """On WSL2 without VS Code, falls back to PowerShell GUID AUMID."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    powershell_aumid_guid = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_is_wsl', return_value=True), \
+         mock.patch.object(notify, '_resolve_aumid',
+                           return_value=notify._POWERSHELL_AUMID), \
+         mock.patch.dict(os.environ, {'WSL_DISTRO_NAME': 'vibe-legox'}), \
+         mock.patch.object(os, 'getcwd', return_value='/home/user/project'):
+        notify._notify_linux(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        assert powershell_aumid_guid in ps_script
 
 
 def test_notify_wsl_escapes_special_characters():
@@ -331,6 +348,8 @@ def test_notify_windows_powershell():
     """Native Windows uses XmlDocument toast with vscode://file/ click-to-focus."""
     payload = {'title': 'Test', 'message': 'Hello'}
     with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_resolve_aumid',
+                           return_value='Microsoft.VisualStudioCode'), \
          mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
         notify._notify_windows(payload)
         mock_run.assert_called_once()
@@ -346,11 +365,24 @@ def test_notify_windows_powershell():
         assert '<actions>' in ps_script
         assert 'activationType="protocol"' in ps_script
         assert 'vscode://file/C:/Users/test/project' in ps_script
-        # Uses registered PowerShell AUMID
-        assert '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}' in ps_script
+        # Uses VS Code AUMID
+        assert 'Microsoft.VisualStudioCode' in ps_script
         # Title and message embedded in XML
         assert '<text>Test</text>' in ps_script
         assert '<text>Hello</text>' in ps_script
+
+
+def test_notify_windows_fallback_aumid():
+    """Native Windows without VS Code falls back to PowerShell GUID AUMID."""
+    payload = {'title': 'Test', 'message': 'Hello'}
+    powershell_aumid_guid = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+    with mock.patch('subprocess.run') as mock_run, \
+         mock.patch.object(notify, '_resolve_aumid',
+                           return_value=notify._POWERSHELL_AUMID), \
+         mock.patch.object(os, 'getcwd', return_value='C:\\Users\\test\\project'):
+        notify._notify_windows(payload)
+        ps_script = mock_run.call_args[0][0][2]
+        assert powershell_aumid_guid in ps_script
 
 
 def test_notify_windows_escapes_special_characters():

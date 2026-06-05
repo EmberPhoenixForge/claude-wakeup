@@ -220,6 +220,57 @@ def _foreground_linux():
 
 
 
+# ---------------------------------------------------------------------------
+# AUMID resolution for Windows toast notifications
+# ---------------------------------------------------------------------------
+
+# PowerShell's registered AUMID — fallback when VS Code is not installed
+_POWERSHELL_AUMID = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
+                     '\\WindowsPowerShell\\v1.0\\powershell.exe')
+
+# VS Code's registered AUMID — preferred when available (shows "Visual Studio
+# Code" as the toast header instead of "Windows PowerShell")
+_VSCODE_AUMID = 'Microsoft.VisualStudioCode'
+
+# Resolved AUMID, cached after first lookup. None means unresolved.
+_AUMID_CACHE = None
+
+
+def _resolve_aumid():
+    """Return the best available AUMID for toast notifications.
+
+    Queries Get-StartApps for VS Code's registered AppID. When VS Code is
+    installed (standard or WSL remote), uses its AUMID so the toast header
+    reads "Visual Studio Code" instead of "Windows PowerShell". Falls back to
+    the PowerShell AUMID when VS Code is not found, ensuring notifications
+    always fire.
+
+    Result is cached at module level — the query runs at most once per session.
+    """
+    global _AUMID_CACHE
+    if _AUMID_CACHE is not None:
+        return _AUMID_CACHE
+
+    try:
+        ps_cmd = (
+            "Get-StartApps | "
+            "Where-Object { $_.AppID -eq 'Microsoft.VisualStudioCode' }"
+        )
+        proc = subprocess.run(
+            ['powershell.exe' if _is_wsl() else 'powershell',
+             '-Command', ps_cmd],
+            check=False, timeout=5, capture_output=True, text=True,
+        )
+        if proc.returncode == 0 and 'VisualStudioCode' in proc.stdout:
+            _AUMID_CACHE = _VSCODE_AUMID
+            return _AUMID_CACHE
+    except Exception:
+        pass
+
+    _AUMID_CACHE = _POWERSHELL_AUMID
+    return _AUMID_CACHE
+
+
 def _notify_linux(payload):
     """Send notification via notify-send (libnotify). On WSL2, uses PowerShell."""
     if _is_wsl():
@@ -271,8 +322,7 @@ def _notify_wsl(payload):
             '</binding></visual></toast>'
         )
 
-    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
-             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+    aumid = _resolve_aumid()
 
     ps = (
         '[Windows.UI.Notifications.ToastNotificationManager,'
@@ -342,8 +392,7 @@ def _notify_windows(payload):
         '</actions></toast>'
     )
 
-    aumid = ('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}'
-             '\\WindowsPowerShell\\v1.0\\powershell.exe')
+    aumid = _resolve_aumid()
 
     ps_script = (
         '[Windows.UI.Notifications.ToastNotificationManager,'
