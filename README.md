@@ -40,6 +40,12 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 
 By default, notifications are suppressed when VS Code is the active foreground window — no need to ping you when you're already looking at Claude.
 
+## Screenshots
+
+![Task complete](docs/screenshots/background_notify.gif)
+
+*Screenshots showing OS-native notifications. Click-to-focus brings VS Code to the foreground when you interact with a notification.*
+
 ## Requirements
 
 - Python 3.10+
