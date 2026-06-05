@@ -25,7 +25,8 @@ OS-native desktop notifications for Claude Code VS Code Extension. Get notified 
 
 ¹ `terminal-notifier` is optional for basic notifications, but required for click-to-focus on macOS.
 
-**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required. The first time you click a notification to focus VS Code, Windows will show an authorization popup — choose "Always allow" to avoid being prompted on subsequent clicks.
+**WSL2:** Detected automatically via `WSL_DISTRO_NAME` — uses PowerShell toast notifications. No additional setup required. \
+The first time you click a notification to focus VS Code, Windows will show an authorization popup — choose "Always allow" to avoid being prompted on subsequent clicks.
 
 **VS Code required.** Click-to-focus depends on VS Code being installed — the `code` CLI on macOS, and the `vscode://` protocol handler on Windows/WSL2.
 
@@ -38,6 +39,12 @@ Claude Wakeup is a Claude Code plugin that hooks into Claude's event system. Whe
 - **Errors** — alerted when Claude can't proceed without you
 
 By default, notifications are suppressed when VS Code is the active foreground window — no need to ping you when you're already looking at Claude.
+
+## Screenshots
+
+![Task complete](docs/screenshots/background_notify.gif)
+
+*Screenshots showing OS-native notifications. Click-to-focus brings VS Code to the foreground when you interact with a notification.*
 
 ## Requirements
 
